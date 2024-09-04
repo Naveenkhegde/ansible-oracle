@@ -1,0 +1,334 @@
+---
+- hosts: oracle_db_servers
+  become: true
+  vars:
+    oracle_user: oracle
+    grid_user: grid
+    oracle_base: /u01/app/oracle
+    oracle_home: /u01/app/oracle/product/19.0.0/db_1
+    grid_home: /u01/app/19.0.0/grid
+    oracle_grid_zip: /share/LINUX.X64_193000_grid_home.zip
+
+  tasks:
+
+    - name: Create the oinstall group
+      group:
+        name: oinstall
+        state: present
+
+    - name: Create the dba group
+      group:
+        name: dba
+        state: present
+
+    - name: Create the oper group
+      group:
+        name: oper
+        state: present
+
+    - name: Create the asmadmin group
+      group:
+        name: asmadmin
+        state: present
+
+    - name: Create the asmdba group
+      group:
+        name: asmdba
+        state: present
+
+    - name: Create the oracle user
+      user:
+        name: "{{ oracle_user }}"
+        uid: 54321
+        group: oinstall
+        groups: dba, oper, asmdba
+        home: /home/oracle
+        shell: /bin/bash
+        state: present
+        create_home: yes
+
+    - name: Create the grid user
+      user:
+        name: "{{ grid_user }}"
+        uid: 54323
+        group: oinstall
+        groups: asmadmin, asmdba
+        home: /home/grid
+        shell: /bin/bash
+        state: present
+        create_home: yes
+
+    - name: Add oracle and grid users to vboxsf group
+      user:
+        name: "{{ item }}"
+        groups: vboxsf
+        append: yes
+      loop:
+        - "{{ oracle_user }}"
+        - "{{ grid_user }}"
+
+    - name: Create Oracle Database and Grid home directories
+      file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner }}"
+        group: oinstall
+        mode: '0775'
+      loop:
+        - { path: "{{ oracle_base }}/product/19.0.0/db_1", owner: "{{ oracle_user }}" }
+        - { path: "{{ grid_home }}", owner: "{{ grid_user }}" }
+        - { path: "{{ oracle_base }}", owner: "{{ oracle_user }}" }
+
+    # - name: Backup oracle's .bash_profile
+    #   copy:
+    #     src: /home/oracle/.bash_profile
+    #     dest: /home/oracle/.bash_profile_bkp
+    #   when: ansible_user == "{{ oracle_user }}"
+
+    - name: Configure oracle's environment variables
+      lineinfile:
+        path: /home/oracle/.bash_profile
+        line: "{{ item }}"
+        create: yes
+      with_items:
+        - "ORACLE_BASE={{ oracle_base }}; export ORACLE_BASE"
+        - "ORACLE_SID=oradb; export ORACLE_SID"
+        - "ORACLE_HOME={{ oracle_home }}; export ORACLE_HOME"
+        - "NLS_DATE_FORMAT=\"DD-MON-YYYY HH24:MI:SS\"; export NLS_DATE_FORMAT"
+        - "TNS_ADMIN=$ORACLE_HOME/network/admin; export TNS_ADMIN"
+        - "PATH=$PATH:$HOME/.local/bin:$HOME/bin:$ORACLE_HOME/bin; export PATH"
+        - "LD_LIBRARY_PATH=$ORACLE_HOME/lib:/lib:/usr/lib:/usr/local/lib; export LD_LIBRARY_PATH"
+        - "CLASSPATH=$ORACLE_HOME/JRE:$ORACLE_HOME/jlib:$ORACLE_HOME/rdbms/jlib:$ORACLE_HOME/network/jlib; export CLASSPATH"
+        - "export TEMP=/tmp"
+        - "export TMPDIR=/tmp"
+        - "export EDITOR=vi"
+        - "umask 022"
+
+    # - name: Backup grid's .bash_profile
+    #   copy:
+    #     src: /home/grid/.bash_profile
+    #     dest: /home/grid/.bash_profile_bkp
+    #   when: ansible_user == "{{ grid_user }}"
+
+    - name: Configure grid's environment variables
+      lineinfile:
+        path: /home/grid/.bash_profile
+        line: "{{ item }}"
+        create: yes
+      with_items:
+        - "ORACLE_BASE=/u01/app/grid; export ORACLE_BASE"
+        - "ORACLE_SID=+ASM; export ORACLE_SID"
+        - "ORACLE_HOME={{ grid_home }}; export ORACLE_HOME"
+        - "ORACLE_TERM=xterm; export ORACLE_TERM"
+        - "TNS_ADMIN=$ORACLE_HOME/network/admin; export TNS_ADMIN"
+        - "PATH=$PATH:$HOME/bin:$ORACLE_HOME/bin; export PATH"
+        - "export TEMP=/tmp"
+        - "export TMPDIR=/tmp"
+        - "umask 022"
+
+    - name: Copy the grid install response file to the target server
+      copy:
+        src: /share/grid_install.rsp
+        dest: /home/grid/response_file.rsp
+        owner: grid
+        group: oinstall
+        mode: '0644'
+    - name: Copy Oracle Grid Infrastructure software to target location
+      copy:
+        src: "{{ oracle_grid_zip }}"
+        dest: "{{ grid_home }}/LINUX.X64_193000_grid_home.zip"
+        owner: grid
+        group: oinstall
+        mode: '0644'
+        
+
+    - name: Unzip Oracle Grid Infrastructure software
+      unarchive:
+        src: "{{ grid_home }}/LINUX.X64_193000_grid_home.zip"
+        dest: "{{ grid_home }}"
+        remote_src: yes
+      become_user: grid
+
+    - name: Install Oracle ASMLib packages
+      yum:
+        name:
+          - oracleasm-support
+          - kmod-oracleasm
+          - ksh
+          - libaio-devel
+          - compat-libcap1
+          - libstdc++-devel
+
+        state: present
+    - name: Upgrade pip to version 20.3.4 with SSL bypass
+      shell: python -m pip install --upgrade pip==20.3.4 --trusted-host pypi.python.org
+      become: yes
+
+    - name: Install pexpect using pip
+      pip:
+        name: pexpect
+        executable: pip
+
+    - name: Configure Oracle ASMLib kernel module
+      command: oracleasm configure -e -u grid -g oinstall -s y
+
+      become: yes
+      become_user: root
+
+    - name: Load Oracle ASMLib kernel module
+      command: /usr/sbin/oracleasm init
+
+    - name: Install cvuqdisk package
+      yum:
+        name: "{{ grid_home }}/cv/rpm/cvuqdisk-1.0.10-1.rpm"
+        state: present
+
+    - name: Set kernel parameters for Oracle
+      copy:
+        dest: /etc/sysctl.d/97-oracle-database-sysctl.conf
+        content: |
+          fs.aio-max-nr = 1048576
+          fs.file-max = 6815744
+          kernel.shmall = 2097152
+          kernel.shmmax = 4294967295
+          kernel.shmmni = 4096
+          kernel.sem = 250 32000 100 128
+          net.ipv4.ip_local_port_range = 9000 65500
+          net.core.rmem_default = 262144
+          net.core.rmem_max = 4194304
+          net.core.wmem_default = 262144
+          net.core.wmem_max = 1048576
+
+    - name: Apply kernel parameters
+      command: /sbin/sysctl --system
+
+    - name: Partition disks /dev/sdb, /dev/sdc, /dev/sdd
+      become: true
+      block:
+        - name: Create partition on /dev/sdb
+          parted:
+            device: /dev/sdb
+            number: 1
+            state: present
+            
+
+        - name: Create partition on /dev/sdc
+          parted:
+            device: /dev/sdc
+            number: 1
+            state: present
+
+
+        - name: Create partition on /dev/sdd
+          parted:
+            device: /dev/sdd
+            number: 1
+            state: present
+            
+
+    # Create ASM Disks
+    - name: Create ASM disks
+      command: oracleasm createdisk {{ item.name }} {{ item.path }}
+      loop:
+        - { name: "OCRDISK1", path: "/dev/sdb1" }
+        - { name: "DATADISK1", path: "/dev/sdc1" }
+        - { name: "FRADISK1", path: "/dev/sdd1" }
+      become: yes
+      become_user: root
+    - name: List ASM disks
+      command: oracleasm listdisks
+
+    - name: Reboot the server
+      reboot:
+        reboot_timeout: 600
+
+    - name: Scan ASM disks
+      command: oracleasm scandisks
+
+    - name: Run Grid Infrastructure setup
+      shell: "{{ grid_home }}/gridSetup.sh -silent -responseFile /home/grid/response_file.rsp"
+      args:
+        chdir: "{{ grid_home }}"
+      become_user: "{{ grid_user }}"
+      register: install_result
+      failed_when: "'Error' in install_result.stderr or install_result.rc not in [0, 6]"
+
+    - name: Execute orainstRoot.sh script with sudo as baby user
+      become: yes
+      become_user: baby
+      command: "sudo /u01/app/oraInventory/orainstRoot.sh"
+      when: install_result.rc in [0, 6]
+
+    - name: Execute root.sh script with sudo as baby user
+      become: yes
+      become_user: baby
+      command: "sudo /u01/app/19.0.0/grid/root.sh"
+      when: install_result.rc in [0, 6]
+
+    - name: Execute script as grid user
+      become: yes
+      become_user: grid
+      command: "/u01/app/19.0.0/grid/gridSetup.sh -silent -executeConfigTools -responseFile /home/grid/response_file.rsp"
+      when: install_result.rc in [0, 6]
+
+
+    - name: Create DATA disk group (EXTERNAL redundancy)
+      shell: "/u01/app/19.0.0/grid/bin/asmca -silent -createDiskGroup -diskString '/dev/oracleasm/disks/*' -diskGroupName DATA -diskList '/dev/oracleasm/disks/DATADISK1' -redundancy EXTERNAL -au_size 4"
+      become: yes
+      become_user: grid
+      register: data_dg_result
+
+    - name: Create FRA disk group (EXTERNAL redundancy)
+      shell: "/u01/app/19.0.0/grid/bin/asmca -silent -createDiskGroup -diskString '/dev/oracleasm/disks/*' -diskGroupName FRA -diskList '/dev/oracleasm/disks/FRADISK1' -redundancy EXTERNAL -au_size 4"
+      become: yes
+      become_user: grid
+
+      register: fra_dg_result
+
+
+
+    - name: Copy the Oracle response file to the target server
+      copy:
+        src: /share/oracle_install_with_grid.rsp
+        dest: /home/oracle/response_file.rsp
+        owner: oracle
+        group: oinstall
+        mode: '0644'
+
+    - name: Copy the Oracle binary to the target server
+      copy:
+        src: /share/LINUX.X64_193000_db_home.zip
+        dest: /home/oracle/LINUX.X64_193000_db_home.zip
+        owner: oracle
+        group: oinstall
+        mode: '0644'
+
+    - name: Extract Oracle Database installation files
+      unarchive:
+        src: /home/oracle/LINUX.X64_193000_db_home.zip
+        dest: /u01/app/oracle/product/19.0.0/db_1
+        remote_src: yes
+      become_user: oracle
+
+    - name: Install Oracle Database silently using response file
+      command: "/u01/app/oracle/product/19.0.0/db_1/runInstaller -silent -responseFile /home/oracle/response_file.rsp -waitforcompletion"
+      become_user: oracle
+      environment:
+        ORACLE_HOME: /u01/app/oracle/product/19.0.0/db_1
+        ORACLE_BASE: /u01/app/oracle
+        ORACLE_SID: oradb
+      register: install_result
+      failed_when: "'Error' in install_result.stderr or install_result.rc not in [0, 6]"
+    - name: Wait for Oracle installation to complete
+      become: yes
+      wait_for:
+        path: /u01/app/oraInventory
+        state: present
+        timeout: 600
+
+
+    - name: Execute root.sh script with sudo as baby user
+      become: yes
+      become_user: baby
+      command: "sudo /u01/app/oracle/product/19.0.0/db_1/root.sh"
+      when: install_result.rc in [0, 6]

@@ -1,0 +1,149 @@
+---
+- hosts: oracle_db_servers
+  become: true
+  tasks:
+    - name: Create the oinstall group
+      group:
+        name: oinstall
+        state: present
+
+    - name: Create the dba group
+      group:
+        name: dba
+        state: present
+
+    - name: Create the oper group
+      group:
+        name: oper
+        state: present
+
+    - name: Create the oracle user
+      user:
+        name: oracle
+        uid: 54321
+        group: oinstall
+        groups: dba, oper
+        home: /home/oracle
+        shell: /bin/bash
+        state: present
+        create_home: yes
+
+    - name: Update all packages
+      yum:
+        name: '*'
+        state: latest
+      register: yum_update_result
+
+    - name: Reboot oracle if required
+      reboot:
+        msg: "Reboot initiated by Ansible after package update"
+        connect_timeout: 30
+        reboot_timeout: 1200
+        pre_reboot_delay: 10
+        post_reboot_delay: 30
+      when: yum_update_result.changed
+
+    - name: Install Oracle preinstall package
+      yum:
+        name: oracle-database-preinstall-19c
+        state: present
+
+    - name: Create Oracle directories
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: oracle
+        group: oinstall
+        mode: '0755'
+      with_items:
+        - /u01/app/oracle/product/19.0.0/db_1
+        - /u01/app/oraInventory
+
+    - name: Ensure oracle user's .bash_profile is configured
+      copy:
+        content: |
+          # .bash_profile
+          if [ -f ~/.bashrc ]; then
+            . ~/.bashrc
+          fi
+          ORACLE_BASE=/u01/app/oracle; export ORACLE_BASE
+          ORACLE_SID=oradb; export ORACLE_SID
+          ORACLE_HOME=$ORACLE_BASE/product/19.0.0/db_1; export ORACLE_HOME
+          NLS_DATE_FORMAT="DD-MON-YYYY HH24:MI:SS"; export NLS_DATE_FORMAT
+          PATH=$PATH:$HOME/.local/bin:$HOME/bin
+          PATH=${PATH}:/usr/bin:/bin:/usr/local/bin
+          PATH=.:${PATH}:$ORACLE_HOME/bin
+          export PATH
+          LD_LIBRARY_PATH=$ORACLE_HOME/lib
+          LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$ORACLE_HOME/oracm/lib
+          LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/lib:/usr/lib:/usr/local/lib
+          export LD_LIBRARY_PATH
+          CLASSPATH=$ORACLE_HOME/JRE
+          CLASSPATH=${CLASSPATH}:$ORACLE_HOME/jlib
+          CLASSPATH=${CLASSPATH}:$ORACLE_HOME/rdbms/jlib
+          CLASSPATH=${CLASSPATH}:$ORACLE_HOME/network/jlib
+          export CLASSPATH
+          export TEMP=/tmp
+          export TMPDIR=/tmp
+          export EDITOR=vi
+          umask 022
+        dest: /home/oracle/.bash_profile
+        owner: oracle
+        group: oinstall
+        mode: '0644'
+      become_user: oracle
+
+    - name: Source .bash_profile
+      shell: . /home/oracle/.bash_profile
+      become_user: oracle
+
+    - name: Copy the Oracle response file to the target server
+      copy:
+        src: /share/db2.rsp
+        dest: /home/oracle/response_file.rsp
+        owner: oracle
+        group: oinstall
+        mode: '0644'
+
+    - name: Copy the Oracle binary to the target server
+      copy:
+        src: /share/LINUX.X64_193000_db_home.zip
+        dest: /home/oracle/LINUX.X64_193000_db_home.zip
+        owner: oracle
+        group: oinstall
+        mode: '0644'
+
+    - name: Extract Oracle Database installation files
+      unarchive:
+        src: /home/oracle/LINUX.X64_193000_db_home.zip
+        dest: /u01/app/oracle/product/19.0.0/db_1
+        remote_src: yes
+      become_user: oracle
+
+    - name: Install Oracle Database silently using response file
+      command: "/u01/app/oracle/product/19.0.0/db_1/runInstaller -silent -responseFile /home/oracle/response_file.rsp -waitforcompletion"
+      become_user: oracle
+      environment:
+        ORACLE_HOME: /u01/app/oracle/product/19.0.0/db_1
+        ORACLE_BASE: /u01/app/oracle
+        ORACLE_SID: oradb
+      register: install_result
+      failed_when: "'Error' in install_result.stderr or install_result.rc not in [0, 6]"
+    - name: Wait for Oracle installation to complete
+      become: yes
+      wait_for:
+        path: /u01/app/oraInventory
+        state: present
+        timeout: 600
+
+    - name: Execute orainstRoot.sh script with sudo as baby user
+      become: yes
+      become_user: baby
+      command: "sudo /u01/app/oraInventory/orainstRoot.sh"
+      when: install_result.rc in [0, 6]
+
+    - name: Execute root.sh script with sudo as baby user
+      become: yes
+      become_user: baby
+      command: "sudo /u01/app/oracle/product/19.0.0/db_1/root.sh"
+      when: install_result.rc in [0, 6]

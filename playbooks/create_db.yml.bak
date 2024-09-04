@@ -1,0 +1,67 @@
+---
+- hosts: oracle_db_servers
+  become: true
+  tasks:
+
+
+    - name: Copy the response file for the database to the Oracle server
+      copy:
+        src: /share/dbca_noncdb.rsp
+        dest: /home/oracle/oradb-noncdb.rsp
+        owner: oracle
+        group: oinstall
+        mode: '0640'
+
+    - name: Check if the listener is running
+      shell: "lsnrctl status | grep 'Listener Log File'"
+      become: yes
+      become_user: oracle
+      environment:
+        ORACLE_HOME: /u01/app/oracle/product/19.0.0/db_1
+        PATH: "{{ ansible_env.PATH }}:/u01/app/oracle/product/19.0.0/db_1/bin"
+      register: listener_status
+      ignore_errors: yes
+
+    - name: Debug listener status
+      debug:
+        var: listener_status.stdout_lines
+
+    - name: Create listener using netca if not present
+      shell: "netca -silent -responseFile /u01/app/oracle/product/19.0.0/db_1/assistants/netca/netca.rsp"
+      become: yes
+      become_user: oracle
+      environment:
+        ORACLE_HOME: /u01/app/oracle/product/19.0.0/db_1
+        PATH: "{{ ansible_env.PATH }}:/u01/app/oracle/product/19.0.0/db_1/bin"
+      when: listener_status.rc != 0
+
+    - name: Source the .bash_profile to load environment variables
+      shell: "source ~/.bash_profile"
+      become: yes
+      become_user: oracle
+      environment:
+        ORACLE_HOME: /u01/app/oracle/product/19.0.0/db_1
+        PATH: "{{ ansible_env.PATH }}:/u01/app/oracle/product/19.0.0/db_1/bin"
+
+    - name: Install pexpect using pip
+      pip:
+        name: pexpect
+        executable: pip
+
+    - name: Run the DBCA command to create the Oracle database
+      expect:
+        command: "dbca -createDatabase -silent -responseFile /home/oracle/oradb-noncdb.rsp -dbOptions JSERVER:true,DV:false,APEX:false,OMS:false,SPATIAL:false,IMEDIA:false,ORACLE_TEXT:false,CWMLITE:false -sampleSchema true"
+        responses:
+          "Enter SYS user password:": "{{ sys_password }}"
+          "Enter SYSTEM user password:": "{{ system_password }}"
+      become: yes
+      become_user: oracle
+      environment:
+        ORACLE_HOME: /u01/app/oracle/product/19.0.0/db_1
+        PATH: "{{ ansible_env.PATH }}:/u01/app/oracle/product/19.0.0/db_1/bin"
+      register: dbca_output
+      ignore_errors: yes
+
+    - name: Debug the DBCA output
+      debug:
+        var: dbca_output.stdout_lines

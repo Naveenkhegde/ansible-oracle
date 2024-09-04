@@ -1,0 +1,13 @@
+[oracle_db_servers]
+oracle ansible_host=192.168.130.202
+
+[oracle_db_servers:vars]
+ansible_user=baby
+ansible_ssh_private_key_file=~/.ssh/ansible.key
+#ansible_python_interpreter=/usr/bin/python3
+sys_password=Oracle_19c
+system_password=Oracle_19c
+pdbadmin_password=Oracle_19c
+grid_u=grid
+grid_g=oinstall
+prompt=y
