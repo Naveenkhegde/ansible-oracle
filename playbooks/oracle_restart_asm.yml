@@ -10,6 +10,7 @@
     oracle_grid_zip: /share/LINUX.X64_193000_grid_home.zip
 
   tasks:
+
     - name: Create the oinstall group
       group:
         name: oinstall
@@ -78,11 +79,11 @@
         - { path: "{{ grid_home }}", owner: "{{ grid_user }}" }
         - { path: "{{ oracle_base }}", owner: "{{ oracle_user }}" }
 
-    - name: Backup oracle's .bash_profile
-      copy:
-        src: /home/oracle/.bash_profile
-        dest: /home/oracle/.bash_profile_bkp
-      when: ansible_user == "{{ oracle_user }}"
+    # - name: Backup oracle's .bash_profile
+    #   copy:
+    #     src: /home/oracle/.bash_profile
+    #     dest: /home/oracle/.bash_profile_bkp
+    #   when: ansible_user == "{{ oracle_user }}"
 
     - name: Configure oracle's environment variables
       lineinfile:
@@ -103,11 +104,11 @@
         - "export EDITOR=vi"
         - "umask 022"
 
-    - name: Backup grid's .bash_profile
-      copy:
-        src: /home/grid/.bash_profile
-        dest: /home/grid/.bash_profile_bkp
-      when: ansible_user == "{{ grid_user }}"
+    # - name: Backup grid's .bash_profile
+    #   copy:
+    #     src: /home/grid/.bash_profile
+    #     dest: /home/grid/.bash_profile_bkp
+    #   when: ansible_user == "{{ grid_user }}"
 
     - name: Configure grid's environment variables
       lineinfile:
@@ -263,3 +264,110 @@
       become_user: baby
       command: "sudo /u01/app/19.0.0/grid/root.sh"
       when: install_result.rc in [0, 6]
+
+    - name: Execute script as grid user
+      become: yes
+      become_user: grid
+      command: "/u01/app/19.0.0/grid/gridSetup.sh -silent -executeConfigTools -responseFile /home/grid/response_file.rsp"
+      when: install_result.rc in [0, 6]
+
+
+    - name: Create DATA disk group (EXTERNAL redundancy)
+      shell: "/u01/app/19.0.0/grid/bin/asmca -silent -createDiskGroup -diskString '/dev/oracleasm/disks/*' -diskGroupName DATA -diskList '/dev/oracleasm/disks/DATADISK1' -redundancy EXTERNAL -au_size 4"
+      become: yes
+      become_user: grid
+      register: data_dg_result
+
+    - name: Create FRA disk group (EXTERNAL redundancy)
+      shell: "/u01/app/19.0.0/grid/bin/asmca -silent -createDiskGroup -diskString '/dev/oracleasm/disks/*' -diskGroupName FRA -diskList '/dev/oracleasm/disks/FRADISK1' -redundancy EXTERNAL -au_size 4"
+      become: yes
+      become_user: grid
+
+      register: fra_dg_result
+
+
+
+    - name: Copy the Oracle response file to the target server
+      copy:
+        src: /share/oracle_install_with_grid.rsp
+        dest: /home/oracle/response_file.rsp
+        owner: oracle
+        group: oinstall
+        mode: '0644'
+
+    - name: Copy the Oracle binary to the target server
+      copy:
+        src: /share/LINUX.X64_193000_db_home.zip
+        dest: /home/oracle/LINUX.X64_193000_db_home.zip
+        owner: oracle
+        group: oinstall
+        mode: '0644'
+
+    - name: Extract Oracle Database installation files
+      unarchive:
+        src: /home/oracle/LINUX.X64_193000_db_home.zip
+        dest: /u01/app/oracle/product/19.0.0/db_1
+        remote_src: yes
+      become_user: oracle
+
+    - name: Install Oracle Database silently using response file
+      command: "/u01/app/oracle/product/19.0.0/db_1/runInstaller -silent -responseFile /home/oracle/response_file.rsp -waitforcompletion"
+      become_user: oracle
+      environment:
+        ORACLE_HOME: /u01/app/oracle/product/19.0.0/db_1
+        ORACLE_BASE: /u01/app/oracle
+        ORACLE_SID: oradb
+      register: install_result
+      failed_when: "'Error' in install_result.stderr or install_result.rc not in [0, 6]"
+    - name: Wait for Oracle installation to complete
+      become: yes
+      wait_for:
+        path: /u01/app/oraInventory
+        state: present
+        timeout: 600
+
+
+    - name: Execute root.sh script with sudo as baby user
+      become: yes
+      become_user: baby
+      command: "sudo /u01/app/oracle/product/19.0.0/db_1/root.sh"
+      when: install_result.rc in [0, 6]
+
+    - name: Copy the response file for the database to the Oracle server
+      copy:
+        src: /share/dbca_create_db_asm.rsp
+        dest: /home/oracle/dbca_create_db_asm.rsp
+        owner: oracle
+        group: oinstall
+        mode: '0640'
+
+    - name: Source the .bash_profile to load environment variables
+      shell: "source ~/.bash_profile"
+      become: yes
+      become_user: oracle
+      environment:
+        ORACLE_HOME: /u01/app/oracle/product/19.0.0/db_1
+        PATH: "{{ ansible_env.PATH }}:/u01/app/oracle/product/19.0.0/db_1/bin"
+  
+    - name: Upgrade pip to version 20.3.4 with SSL bypass
+      shell: python -m pip install --upgrade pip==20.3.4 --trusted-host pypi.python.org
+      become: yes
+
+    - name: Install pexpect using pip
+      pip:
+        name: pexpect
+        executable: pip
+
+    - name: Run the DBCA command to create the Oracle database
+      expect:
+        command: "dbca -createDatabase -silent -responseFile /home/oracle/dbca_create_db_asm.rsp -dbOptions JSERVER:true,DV:false,APEX:false,OMS:false,SPATIAL:false,IMEDIA:false,ORACLE_TEXT:false,CWMLITE:false -sampleSchema true"
+        responses:
+          'Enter SYS user password:': "{{ sys_password }}"
+          'Enter SYSTEM user password:': "{{ system_password }}"
+          'Enter PDBADMIN User Password:': "{{ pdbadmin_password }}"
+        timeout: 3600  # Adjust the timeout to be longer than the expected duration
+      environment:
+        ORACLE_HOME: "/u01/app/oracle/product/19.0.0/db_1"
+        PATH: "{{ ansible_env.PATH }}:/u01/app/oracle/product/19.0.0/db_1/bin"
+      become: yes
+      become_user: oracle
