@@ -32,7 +32,7 @@
   tasks:
 
 
-    - name: Step 19 - Enable archiving mode in primary database
+    - name: Step 1 - Enable archiving mode in primary database
       ansible.builtin.shell: |
         export ORACLE_HOME=/u01/app/oracle/product/19.0.0/db_1
         export PATH=$ORACLE_HOME/bin:$PATH
@@ -50,7 +50,7 @@
       delegate_to: "{{ primary_host }}"
       when: inventory_hostname == "primary_host"
 
-    - name: Step 20 - Enable forced logging
+    - name: Step 2 - Enable forced logging
       ansible.builtin.shell: |
         export ORACLE_HOME=/u01/app/oracle/product/19.0.0/db_1
         export PATH=$ORACLE_HOME/bin:$PATH
@@ -63,7 +63,7 @@
       delegate_to: "{{ primary_host }}"
       when: inventory_hostname == "primary_host"
 
-    - name: Step 21 - Configure standby redo logs on primary
+    - name: Step 3 - Configure standby redo logs on primary
       ansible.builtin.shell: |
         export ORACLE_HOME=/u01/app/oracle/product/19.0.0/db_1
         export PATH=$ORACLE_HOME/bin:$PATH
@@ -79,7 +79,7 @@
       delegate_to: "{{ primary_host }}"
       when: inventory_hostname == "primary_host"
 
-    - name: Step 22 - Set primary database initialization parameters for Data Guard
+    - name: Step 4 - Set primary database initialization parameters for Data Guard
       ansible.builtin.shell: |
         export ORACLE_HOME=/u01/app/oracle/product/19.0.0/db_1
         export PATH=$ORACLE_HOME/bin:$PATH
@@ -96,7 +96,7 @@
       delegate_to: "{{ primary_host }}"
       when: inventory_hostname == "primary_host"
 
-    - name: Step 23 - Enable flashback database
+    - name: Step 5 - Enable flashback database
       ansible.builtin.shell: |
         export ORACLE_HOME=/u01/app/oracle/product/19.0.0/db_1
         export PATH=$ORACLE_HOME/bin:$PATH
@@ -110,7 +110,7 @@
       delegate_to: "{{ primary_host }}"
       when: inventory_hostname == "primary_host"
 
-    - name: Step 24 - Set CONTROL_FILE_RECORD_KEEP_TIME
+    - name: Step 6 - Set CONTROL_FILE_RECORD_KEEP_TIME
       ansible.builtin.shell: |
         export ORACLE_HOME=/u01/app/oracle/product/19.0.0/db_1
         export PATH=$ORACLE_HOME/bin:$PATH
@@ -123,7 +123,7 @@
       delegate_to: "{{ primary_host }}"
       when: inventory_hostname == "primary_host"
 
-    - name: Step 25 - Verify password file exists on primary
+    - name: Step 7 - Verify password file exists on primary
       ansible.builtin.command:
         cmd: "ls -al {{ oracle_home }}/dbs/orapworadb"
       become_user: "{{ oracle_user }}"
@@ -131,7 +131,7 @@
       delegate_to: "{{ primary_host }}"
       when: inventory_hostname == "primary_host"
 
-    - name: Step 26 - Verify OMF is not configured
+    - name: Step 8 - Verify OMF is not configured
       ansible.builtin.shell: |
         export ORACLE_HOME=/u01/app/oracle/product/19.0.0/db_1
         export PATH=$ORACLE_HOME/bin:$PATH
@@ -144,7 +144,7 @@
       delegate_to: "{{ primary_host }}"
       when: inventory_hostname == "primary_host"
 
-    - name: Step 28 - Configure tnsnames.ora with standby entry
+    - name: Step 9 - Configure tnsnames.ora with standby entry
       ansible.builtin.lineinfile:
         path: "{{ tns_admin_dir }}/tnsnames.ora"
         line: "{{ tnsnames_entry }}"
@@ -164,7 +164,7 @@
 
     # --- Steps for Standby Database Setup ---
 
-    - name: Step 30 - Create FRA directory on standby
+    - name: Step 10 - Create FRA directory on standby
       ansible.builtin.file:
         path: "{{ fra_dir }}"
         state: directory
@@ -173,7 +173,7 @@
       delegate_to: "{{ standby_host }}"
       when: inventory_hostname == "standby_host"
 
-    - name: Step 31 - Create init.ora file for standby
+    - name: Step 11 - Create init.ora file for standby
       ansible.builtin.shell: |
         echo 'DB_NAME=oradb' > {{ oracle_home }}/dbs/initoradb_s2.ora
       become_user: "{{ oracle_user }}"
@@ -182,13 +182,13 @@
 
 
 
-    - name: Step 32.1 - Fetch password file from primary host to control node
+    - name: Step 12.1 - Fetch password file from primary host to control node
       ansible.builtin.fetch:
         src: /u01/app/oracle/product/19.0.0/db_1/dbs/orapworadb
         dest: /tmp/orapworadb
         flat: yes
       delegate_to: "{{ primary_host }}"
-    - name: Step 32.1 - Copy password file from control node to standby host
+    - name: Step 12.1 - Copy password file from control node to standby host
       ansible.builtin.copy:
         src: /tmp/orapworadb
         dest: "{{ oracle_home }}/dbs/orapworadb_s2"
@@ -198,13 +198,13 @@
       when: inventory_hostname == "standby_host"
 
 
-    - name: Step 33.1 - Fetch tnsnames.ora file from primary host to control node
+    - name: Step 13.1 - Fetch tnsnames.ora file from primary host to control node
       ansible.builtin.fetch:
         src: "{{ tns_admin_dir }}/tnsnames.ora"
         dest: /tmp/tnsnames.ora
         flat: yes
       delegate_to: "{{ primary_host }}"
-    - name: Step 33.2 - Copy tnsnames.ora file from control node to standby host
+    - name: Step 13.2 - Copy tnsnames.ora file from control node to standby host
       ansible.builtin.copy:
         src: /tmp/tnsnames.ora
         dest: "{{ tns_admin_dir }}/tnsnames.ora"
@@ -213,7 +213,7 @@
         mode: '0640'
       when: inventory_hostname == "standby_host"
 
-    - name: Step 34 - Verify or create sqlnet.ora (optional) on standby
+    - name: Step 14 - Verify or create sqlnet.ora (optional) on standby
       ansible.builtin.copy:
         content: "{{ sqlnet_entry }}"
         dest: "{{ tns_admin_dir }}/sqlnet.ora"
@@ -222,7 +222,7 @@
       delegate_to: "{{ standby_host }}"
       when: inventory_hostname == "standby_host"
 
-    - name: Step 35 - Configure listener.ora on standby
+    - name: Step 15 - Configure listener.ora on standby
       ansible.builtin.copy:
         dest: "{{ tns_admin_dir }}/listener.ora"
         content: |
@@ -246,7 +246,7 @@
       delegate_to: "{{ standby_host }}"
       when: inventory_hostname == "standby_host"
 
-    - name: Step 36 - Restart listener on standby
+    - name: Step 16 - Restart listener on standby
       ansible.builtin.shell: |
         export ORACLE_HOME=/u01/app/oracle/product/19.0.0/db_1
         export PATH=$ORACLE_HOME/bin:$PATH
@@ -257,7 +257,7 @@
       delegate_to: "{{ standby_host }}"
       when: inventory_hostname == "standby_host"
 
-    - name: Step 37 - Create backup directory on primary server
+    - name: Step 17 - Create backup directory on primary server
       ansible.builtin.file:
         path: "{{ rman_backup_dir }}"
         state: directory
@@ -280,7 +280,7 @@
       become_user: "{{ oracle_user }}"
       ignore_errors: yes
 
-    - name: Step 38 - Create standby directories
+    - name: Step 18 - Create standby directories
       ansible.builtin.file:
         path: "{{ item }}"
         state: directory
@@ -296,14 +296,8 @@
       delegate_to: "{{ standby_host }}"
       when: inventory_hostname == "standby_host"
 
-    # - name: Step 38.2 - Create initialization parameter file on standby
-    #   ansible.builtin.shell:
-    #     cmd: "echo 'DB_NAME=ORADB2' > {{ oracle_home }}/dbs/initoradb_s2.ora"
-    #   delegate_to: "{{ standby_host }}"
-    #   when: inventory_hostname == "standby_host"
-    #   become_user: "{{ oracle_user }}"
-
-    - name: Step 38.3 - Start auxiliary instance on standby
+    
+    - name: Step 19 - Start auxiliary instance on standby
       ansible.builtin.shell:
         cmd: |
           export ORACLE_HOME=/u01/app/oracle/product/19.0.0/db_1
@@ -320,7 +314,7 @@
 
 
 
-    - name: Step 40 - Duplicate database to standby using RMAN
+    - name: Step 20 - Duplicate database to standby using RMAN
       ansible.builtin.shell: |
         export ORACLE_HOME=/u01/app/oracle/product/19.0.0/db_1
         export PATH=$ORACLE_HOME/bin:$PATH
@@ -346,7 +340,7 @@
       become_user: "{{ oracle_user }}"
       ignore_errors: yes
 
-    - name: Step 42 - Mount the standby database and verify role
+    - name: Step 21 - Mount the standby database and verify role
       ansible.builtin.shell:
         cmd: |
           export ORACLE_HOME=/u01/app/oracle/product/19.0.0/db_1
@@ -361,7 +355,7 @@
       when: inventory_hostname == "standby_host"
       become_user: "{{ oracle_user }}"
 
-    - name: Step 43 - Start redo apply on standby
+    - name: Step 22 - Start redo apply on standby
       ansible.builtin.shell:
         cmd: |
           export ORACLE_HOME=/u01/app/oracle/product/19.0.0/db_1
@@ -375,7 +369,7 @@
       when: inventory_hostname == "standby_host"
       become_user: "{{ oracle_user }}"
 
-    - name: Step 48 - Configure archivelog deletion policy
+    - name: Step 23 - Configure archivelog deletion policy
       ansible.builtin.shell: |
         export ORACLE_HOME=/u01/app/oracle/product/19.0.0/db_1
         export PATH=$ORACLE_HOME/bin:$PATH
@@ -389,7 +383,7 @@
       when: inventory_hostname == "primary_host"
       become_user: "{{ oracle_user }}"
 
-    - name: Step 51.1 - Create script directory for archivelog cleanup
+    - name: Step 24 - Create script directory for archivelog cleanup
       ansible.builtin.file:
         path: "{{ archivelog_cleanup_script_dir }}"
         state: directory
@@ -398,7 +392,7 @@
       when: inventory_hostname == "primary_host"
       become_user: "{{ oracle_user }}"
 
-    - name: Step 51.2 - Create RMAN script for archivelog deletion
+    - name: Step 25 - Create RMAN script for archivelog deletion
       ansible.builtin.copy:
         content: |
           RUN {
@@ -409,7 +403,7 @@
       when: inventory_hostname == "primary_host"
       become_user: "{{ oracle_user }}"
 
-    - name: Step 51.3 - Create shell script for cron job
+    - name: Step 26 - Create shell script for cron job
       ansible.builtin.copy:
         content: |
           $ORACLE_HOME/bin/rman target / cmdfile {{ archivelog_cleanup_script_dir }}/deletearc.ora log {{ log_dir }} append
@@ -419,7 +413,7 @@
       when: inventory_hostname == "primary_host"
       become_user: "{{ oracle_user }}"
 
-    - name: Step 51.7 - Add cron job for archivelog cleanup
+    - name: Step 27 - Add cron job for archivelog cleanup
       ansible.builtin.cron:
         name: "Archive log cleanup"
         minute: "00"
